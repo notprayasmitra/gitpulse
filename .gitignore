@@ -1,5 +1,7 @@
 .env
 
+reviews/
+
 venv/
 .venv/
 
