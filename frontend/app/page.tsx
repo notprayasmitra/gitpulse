@@ -6,19 +6,19 @@ export default function Home() {
   const tools = [
     {
       title: "PR Review",
-      desc: "Scan repositories and extract all active pull requests for a further analysis using AI.",
+      desc: "Scans the repository and extracts all active pull requests for a further analysis using AI.",
       path: "/pr-review",
       tag: "Active Pipeline"
     },
     {
       title: "Repository Review",
-      desc: "Lorem ipsum...",
+      desc: "Reviews the entire codebase of the requested repository and provides a detailed analysis of the structure and setup.",
       path: "/repo-review",
-      tag: "Demo Mode"
+      tag: "Active Pipeline"
     },
     {
       title: "User Review",
-      desc: "Lorem ipsum...",
+      desc: "Analyzes user contributions and provides insights into their coding patterns and collaboration style.",
       path: "/user-review",
       tag: "Demo Mode"
     }
@@ -58,7 +58,7 @@ export default function Home() {
                 <h2 className="text-xl font-bold font-mono tracking-tight text-white group-hover:translate-x-1 transition-transform duration-300">
                   {tool.title}
                 </h2>
-                <p className="text-zinc-500 group-hover:text-zinc-400 transition-colors text-xs font-sans leading-relaxed">
+                <p className="text-zinc-500 group-hover:text-zinc-400 transition-colors text-s font-sans leading-relaxed">
                   {tool.desc}
                 </p>
               </div>
