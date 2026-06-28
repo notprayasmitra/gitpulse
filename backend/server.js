@@ -16,6 +16,140 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'Server is running!', hasToken: !!process.env.GITHUB_TOKEN });
 });
 
+// 🚀 UPGRADED ROUTE: Clean Binary Filter & High-End Markdown Compiler
+app.post('/api/review-repo', async (req, res) => {
+  const { repoUrl } = req.body;
+
+  if (!repoUrl) {
+    return res.status(400).json({ error: 'Repository URL is required' });
+  }
+
+  try {
+    const cleanUrl = repoUrl.replace(/\/$/, '');
+    const urlParts = cleanUrl.replace('https://github.com/', '').split('/');
+    const owner = urlParts[0];
+    const repo = urlParts[1];
+
+    if (!owner || !repo) {
+      return res.status(400).json({ error: 'Invalid GitHub Repository URL format' });
+    }
+
+    // 1. Fetch default branch info
+    const repoInfoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+      headers: { 'Authorization': `Bearer ${process.env.GITHUB_TOKEN}` }
+    });
+    if (!repoInfoRes.ok) throw new Error('Failed to fetch base repository details');
+    const repoInfo = await repoInfoRes.json();
+    const defaultBranch = repoInfo.default_branch;
+
+    // 2. Fetch file tree recursively
+    const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!treeResponse.ok) {
+      return res.status(treeResponse.status).json({ error: 'Failed to retrieve repository file structure map.' });
+    }
+
+    const treeData = await treeResponse.json();
+    
+    // 🔒 EXPANDED FILTER: Stops binary data corruption streams completely
+    const excludedExtensions = [
+      '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.pdf', '.zip', '.tar', '.gz',
+      '.mp3', '.mp4', '.woff', '.woff2', '.eot', '.ttf', '.exe', '.dll', '.ds_store'
+    ];
+    const excludedDirectories = [
+      'node_modules', '.next', 'dist', 'build', '.git', '.env', 'package-lock.json', 'yarn.lock'
+    ];
+
+    const validFiles = treeData.tree.filter(file => 
+      file.type === 'blob' && 
+      !excludedDirectories.some(dir => file.path.includes(dir)) &&
+      !excludedExtensions.some(ext => file.path.toLowerCase().endsWith(ext))
+    ).slice(0, 15); // Capped to 15 essential source files
+
+    let concatenatedCodebase = '';
+
+    for (const file of validFiles) {
+      const rawFileRes = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/${file.path}`, {
+        headers: { 'Authorization': `Bearer ${process.env.GITHUB_TOKEN}` }
+      });
+      
+      if (rawFileRes.ok) {
+        const content = await rawFileRes.text();
+        concatenatedCodebase += `\n\n--- START FILE: ${file.path} ---\n${content.substring(0, 4000)}\n--- END FILE ---`;
+      }
+    }
+
+    if (!concatenatedCodebase) {
+      return res.status(400).json({ error: 'No readable source files discovered in this repository scope.' });
+    }
+
+    // 3. Command Groq to format output as clean, web-friendly Markdown components
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert technical documentation architect. Formulate highly clean, web-friendly documentation for the provided codebase snapshot using structural Markdown. 
+
+          Follow this layout specification strictly:
+          
+          # SYSTEM OVERVIEW
+          > Provide a concise, professional 2-3 sentence overview explaining what the project achieves.
+          
+          ### Core Objectives & Deliverables
+          * Use clean bullet lists to show what functionality the codebase targets.
+          
+          ---
+
+          # ARCHITECTURAL BLUEPRINT
+          ### Technology Stack Matrix
+          | Layer | Technology | Purpose / Role |
+          | :--- | :--- | :--- |
+          | Frontend | (e.g., React / Vite) | (Inferred from files) |
+          | Backend | (e.g., Node.js / Express) | (Inferred from files) |
+
+          ### Core Structural Layout
+          * Describe the architectural directories and how logic flows across components.
+
+          ---
+
+          # COMPONENT REGISTRY
+          *For every core file processed, provide a clean breakdown:*
+          
+          ### \`path/to/file.js\`
+          * **Role:** Short explanation of why this file exists.
+          * **Key Functions/Configurations:** Detail what it configures or exposes.
+          
+          ---
+
+          # INSTALLATION & SETUP
+          Provide step-by-step terminal instructions. Format terminal codes using clear, separate shell syntax blocks:
+          \`\`\`bash
+          # Commands go here
+          \`\`\`
+          
+          Maintain an elegant, highly structured, developer-focused technical presentation tone.`
+        },
+        {
+          role: "user",
+          content: `Here is the codebase data snapshot for project [${repo}]:\n\n${concatenatedCodebase}`
+        }
+      ],
+      model: "llama-3.3-70b-versatile",
+    });
+
+    res.json({ success: true, documentation: chatCompletion.choices[0].message.content });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error analyzing code assets' });
+  }
+});
+
 app.post('/api/fetch-prs', async (req, res) => {
   const { repoUrl } = req.body;
 
