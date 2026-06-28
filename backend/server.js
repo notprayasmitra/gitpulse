@@ -16,7 +16,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'Server is running!', hasToken: !!process.env.GITHUB_TOKEN });
 });
 
-// 🚀 UPGRADED ROUTE: Clean Binary Filter & High-End Markdown Compiler
+// 🚀 BACKEND COMPILER WITH TIGHT MARKDOWN PROMPT
 app.post('/api/review-repo', async (req, res) => {
   const { repoUrl } = req.body;
 
@@ -34,7 +34,6 @@ app.post('/api/review-repo', async (req, res) => {
       return res.status(400).json({ error: 'Invalid GitHub Repository URL format' });
     }
 
-    // 1. Fetch default branch info
     const repoInfoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
       headers: { 'Authorization': `Bearer ${process.env.GITHUB_TOKEN}` }
     });
@@ -42,7 +41,6 @@ app.post('/api/review-repo', async (req, res) => {
     const repoInfo = await repoInfoRes.json();
     const defaultBranch = repoInfo.default_branch;
 
-    // 2. Fetch file tree recursively
     const treeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, {
       headers: {
         'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -56,7 +54,6 @@ app.post('/api/review-repo', async (req, res) => {
 
     const treeData = await treeResponse.json();
     
-    // 🔒 EXPANDED FILTER: Stops binary data corruption streams completely
     const excludedExtensions = [
       '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.pdf', '.zip', '.tar', '.gz',
       '.mp3', '.mp4', '.woff', '.woff2', '.eot', '.ttf', '.exe', '.dll', '.ds_store'
@@ -65,11 +62,27 @@ app.post('/api/review-repo', async (req, res) => {
       'node_modules', '.next', 'dist', 'build', '.git', '.env', 'package-lock.json', 'yarn.lock'
     ];
 
-    const validFiles = treeData.tree.filter(file => 
-      file.type === 'blob' && 
-      !excludedDirectories.some(dir => file.path.includes(dir)) &&
-      !excludedExtensions.some(ext => file.path.toLowerCase().endsWith(ext))
-    ).slice(0, 15); // Capped to 15 essential source files
+    const validFiles = treeData.tree.filter(file => {
+      // 1. Must be a file asset, not a directory folder tree node
+      if (file.type !== 'blob') return false;
+
+      const filePathLower = file.path.toLowerCase();
+
+      // 2. Explicitly kill any font, image, or lock folders right at the root paths
+      const blockedKeywords = ['fonts/', 'images/', 'assets/', 'node_modules/', '.next/', 'dist/', 'build/'];
+      if (blockedKeywords.some(keyword => filePathLower.includes(keyword))) return false;
+
+      // 3. Match explicit forbidden file extensions
+      const blockedExtensions = [
+        '.ttf', '.woff', '.woff2', '.eot', '.otf', 
+        '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', 
+        '.pdf', '.zip', '.tar', '.gz', '.lock'
+      ];
+      if (blockedExtensions.some(ext => filePathLower.endsWith(ext))) return false;
+
+      // If it passes all security checks, allow parsing
+      return true;
+    }).slice(0, 15);
 
     let concatenatedCodebase = '';
 
@@ -85,58 +98,52 @@ app.post('/api/review-repo', async (req, res) => {
     }
 
     if (!concatenatedCodebase) {
-      return res.status(400).json({ error: 'No readable source files discovered in this repository scope.' });
+      return res.status(400).json({ error: 'No readable source files discovered.' });
     }
 
-    // 3. Command Groq to format output as clean, web-friendly Markdown components
     const chatCompletion = await groq.chat.completions.create({
       messages: [
         {
           role: "system",
-          content: `You are an expert technical documentation architect. Formulate highly clean, web-friendly documentation for the provided codebase snapshot using structural Markdown. 
+          content: `You are an expert technical documentation architect. Formulate highly clean, web-friendly, and completely left-aligned documentation using clear structural Markdown.
 
-          Follow this layout specification strictly:
+          CRITICAL RULES:
+          1. Avoid excessive bullet points. Use raw paragraphs, definition blocks, or clean data tables instead.
+          2. Ensure every single text element, header, and table alignment behaves strictly left-aligned.
           
-          # SYSTEM OVERVIEW
-          > Provide a concise, professional 2-3 sentence overview explaining what the project achieves.
+          Follow this structure precisely:
           
-          ### Core Objectives & Deliverables
-          * Use clean bullet lists to show what functionality the codebase targets.
-          
-          ---
-
-          # ARCHITECTURAL BLUEPRINT
-          ### Technology Stack Matrix
-          | Layer | Technology | Purpose / Role |
-          | :--- | :--- | :--- |
-          | Frontend | (e.g., React / Vite) | (Inferred from files) |
-          | Backend | (e.g., Node.js / Express) | (Inferred from files) |
-
-          ### Core Structural Layout
-          * Describe the architectural directories and how logic flows across components.
-
-          ---
-
-          # COMPONENT REGISTRY
-          *For every core file processed, provide a clean breakdown:*
-          
-          ### \`path/to/file.js\`
-          * **Role:** Short explanation of why this file exists.
-          * **Key Functions/Configurations:** Detail what it configures or exposes.
+          # 01 // SYSTEM OVERVIEW
+          > Provide a clean, blockquoted 2-3 sentence technical summary of what this repository manages. Do not use bullet points here.
           
           ---
 
-          # INSTALLATION & SETUP
-          Provide step-by-step terminal instructions. Format terminal codes using clear, separate shell syntax blocks:
+          # 02 // ARCHITECTURAL BLUEPRINT
+          > Provide a clean, blockquoted 2-3 sentence technical summary of the architectural design and flow of this repository. Do not use bullet points here.
+          
+          ### Topology & Framework Flow
+          > Provide a solid technical paragraph explaining how the directories interact and pass states. Do not use lists.
+
+          ---
+
+          # 03 // CORE COMPONENT REGISTRY
+          For every core file scanned, provide a clean text breakdown without nesting sub-bullets:
+          
+          ### Target Module: \`path/to/file.ext\`
+          *System Designation:* Write title here.
+          *Functional Scope:* Provide a solid, continuous sentence layout explaining what it configures or exposes.
+          
+          ---
+
+          # 04 // ENVIRONMENT DEPLOYMENT & SETUP
+          Provide step-by-step terminal block setups:
           \`\`\`bash
           # Commands go here
-          \`\`\`
-          
-          Maintain an elegant, highly structured, developer-focused technical presentation tone.`
+          \`\`\``
         },
         {
           role: "user",
-          content: `Here is the codebase data snapshot for project [${repo}]:\n\n${concatenatedCodebase}`
+          content: `Here is the codebase snapshot data for project [${repo}]:\n\n${concatenatedCodebase}`
         }
       ],
       model: "llama-3.3-70b-versatile",
