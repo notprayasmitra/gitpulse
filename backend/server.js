@@ -16,6 +16,59 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'Server is running!', hasToken: !!process.env.GITHUB_TOKEN });
 });
 
+app.post('/api/fetch-prs', async (req, res) => {
+  const { repoUrl } = req.body;
+
+  if (!repoUrl) {
+    return res.status(400).json({ error: 'Repository URL is required' });
+  }
+
+  try {
+    const cleanUrl = repoUrl.replace(/\/$/, ''); 
+    const urlParts = cleanUrl.replace('https://github.com/', '').split('/');
+    const owner = urlParts[0];
+    const repo = urlParts[1];
+
+    if (!owner || !repo) {
+      return res.status(400).json({ error: 'Invalid GitHub Repository URL format' });
+    }
+
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!response.ok) {
+      // If GitHub says 404, it means the repo doesn't exist OR it's a private repository
+      if (response.status === 404) {
+        return res.status(404).json({ 
+          error: 'Repository not found. It may be private or misspelled. Make sure your GITHUB_TOKEN has access to it.' 
+        });
+      }
+      
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: `GitHub API error: ${errorText}` });
+    }
+    
+    const prsData = await response.json();
+
+    const formattedPRs = prsData.map(pr => ({
+      number: pr.number,
+      title: pr.title,
+      url: pr.html_url,
+      author: pr.user.login
+    }));
+
+    res.json({ success: true, prs: formattedPRs });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error fetching pull requests' });
+  }
+});
+
 app.post('/api/review-pr', async (req, res) => {
   const { prUrl } = req.body;
 
@@ -41,6 +94,11 @@ app.post('/api/review-pr', async (req, res) => {
     });
 
     if (!response.ok) {
+      if (response.status === 404) {
+        return res.status(404).json({ 
+          error: 'Pull request not found. If this is a private repository, ensure your GITHUB_TOKEN has full read permissions for it.' 
+        });
+      }
       const errorText = await response.text();
       return res.status(response.status).json({ error: `GitHub API error: ${errorText}` });
     }
@@ -63,7 +121,7 @@ app.post('/api/review-pr', async (req, res) => {
           content: `Here is the git diff:\n\n${diffText}`
         }
       ],
-      model: "llama-3.1-8b-instant", // Model options: llama-3.1-8b-instant & llama-3.3-70b-versatile
+      model: "llama-3.3-70b-versatile", // Model options: llama-3.1-8b-instant & llama-3.3-70b-versatile
     });
 
     const aiReview = chatCompletion.choices[0].message.content;
